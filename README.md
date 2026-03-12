@@ -34,7 +34,7 @@ VITE_LOG_VIEWER_DEFAULT_PATH=/absolute/path/to/your/logfile.log
 pnpm dev
 ```
 
-The dev server runs on `http://localhost:3050`.
+
 
 ## Scripts
 

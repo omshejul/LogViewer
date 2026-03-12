@@ -1,4 +1,5 @@
 import { Link } from '@tanstack/react-router'
+import { DEFAULT_LOG_PATH } from '#/lib/config'
 import ThemeToggle from './ThemeToggle'
 
 export default function Header() {
@@ -8,6 +9,7 @@ export default function Header() {
         <h1 className="m-0 flex-shrink-0 text-base font-semibold tracking-tight">
           <Link
             to="/"
+            search={{ file: DEFAULT_LOG_PATH }}
             className="inline-flex items-center gap-2 rounded-full border border-border/80 bg-card/80 px-4 py-2 text-sm text-foreground no-underline shadow-sm transition hover:border-border hover:bg-card"
           >
             <span className="size-2 rounded-full bg-[linear-gradient(135deg,#c9842d,#f2c879)]" />
@@ -18,6 +20,7 @@ export default function Header() {
         <div className="order-3 flex w-full flex-wrap items-center gap-4 text-sm font-medium text-muted-foreground sm:order-2 sm:w-auto">
           <Link
             to="/"
+            search={{ file: DEFAULT_LOG_PATH }}
             className="rounded-full px-2 py-1 text-muted-foreground no-underline transition hover:bg-accent hover:text-foreground"
             activeProps={{
               className:

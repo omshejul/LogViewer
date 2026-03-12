@@ -7,6 +7,8 @@ export type LogSeverity =
   | 'trace'
   | 'unknown'
 
+export type ParsedLogValue = Record<string, {}> | {}[]
+
 export type LogEntry = {
   id: number
   startLine: number
@@ -19,7 +21,7 @@ export type LogEntry = {
   source: string | null
   event: string | null
   kind: 'json' | 'text'
-  parsed: unknown | null
+  parsed: ParsedLogValue | null
 }
 
 export type ParsedLogFile = {
@@ -221,7 +223,7 @@ function shouldStartNewEntry(
   return true
 }
 
-function parseStructuredValue(raw: string): unknown | null {
+function parseStructuredValue(raw: string): ParsedLogValue | null {
   const trimmed = raw.trim()
 
   if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
@@ -229,7 +231,7 @@ function parseStructuredValue(raw: string): unknown | null {
   }
 
   try {
-    return JSON.parse(trimmed) as unknown
+    return JSON.parse(trimmed) as ParsedLogValue
   } catch {
     return null
   }

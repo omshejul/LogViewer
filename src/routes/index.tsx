@@ -14,7 +14,13 @@ import {
   RefreshCw,
   Search,
 } from 'lucide-react'
-import { startTransition, useDeferredValue, useEffect, useState } from 'react'
+import {
+  startTransition,
+  useDeferredValue,
+  useEffect,
+  useRef,
+  useState,
+} from 'react'
 import { Badge } from '#/components/ui/badge'
 import { Button } from '#/components/ui/button'
 import {
@@ -81,7 +87,7 @@ const readLogFile = createServerFn({ method: 'GET' })
           : DEFAULT_LOG_PATH,
     }),
   )
-  .handler(async ({ data }): Promise<LogLoaderData> => {
+  .handler(async ({ data }) => {
     const requestedPath = data.filePath
 
     if (!requestedPath) {
@@ -140,12 +146,12 @@ export const Route = createFileRoute('/')({
   loaderDeps: ({ search }) => ({
     file: search.file,
   }),
-  loader: ({ deps }) => {
-    return readLogFile({
+  loader: async ({ deps }): Promise<LogLoaderData> => {
+    return (await readLogFile({
       data: {
         filePath: deps.file,
       },
-    })
+    })) as LogLoaderData
   },
   component: LogViewerRoute,
 })
@@ -176,6 +182,8 @@ function LogViewerRoute() {
   const deferredQuery = useDeferredValue(query.trim().toLowerCase())
   const entries = data.entries
 
+  const detailRef = useRef<HTMLDivElement | null>(null)
+
   useEffect(() => {
     setFileInput(search.file)
   }, [search.file])
@@ -186,6 +194,7 @@ function LogViewerRoute() {
 
   useEffect(() => {
     setJsonTreeMode('default')
+    setDetailMode('pretty')
   }, [selectedId])
 
   const sourceCounts = new Map<string, number>()
@@ -214,12 +223,30 @@ function LogViewerRoute() {
     ([leftKey, leftCount], [rightKey, rightCount]) =>
       rightCount - leftCount || leftKey.localeCompare(rightKey),
   )
+  const sourceFilterOptions: Array<[string, string]> = [
+    ['all', 'All sources'],
+    ...sourceOptions.map(
+      ([source, count]): [string, string] => [
+        source,
+        `${source} (${formatInteger(count)})`,
+      ],
+    ),
+  ]
   const eventOptions = [...eventCounts.entries()]
     .sort(
       ([leftKey, leftCount], [rightKey, rightCount]) =>
         rightCount - leftCount || leftKey.localeCompare(rightKey),
     )
     .slice(0, 100)
+  const eventFilterOptions: Array<[string, string]> = [
+    ['all', 'All events'],
+    ...eventOptions.map(
+      ([event, count]): [string, string] => [
+        event,
+        `${event} (${formatInteger(count)})`,
+      ],
+    ),
+  ]
 
   let filteredEntries = entries.filter((entry) => {
     if (severityFilter !== 'all' && entry.severity !== severityFilter) {
@@ -278,6 +305,14 @@ function LogViewerRoute() {
     : -1
 
   useEffect(() => {
+    if (!selectedEntry || !detailRef.current) return
+    detailRef.current.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    })
+  }, [selectedId, selectedEntry])
+
+  useEffect(() => {
     if (selectedEntry?.kind !== 'json' && detailMode === 'pretty') {
       setDetailMode('raw')
     }
@@ -300,11 +335,12 @@ function LogViewerRoute() {
       return
     }
 
-    const offset = direction === 'next' ? 1 : -1
-    const target = filteredEntries[selectedIndex + offset]
-    if (target) {
-      setSelectedId(target.id)
+    const nextIndex = selectedIndex + (direction === 'next' ? 1 : -1)
+    if (nextIndex < 0 || nextIndex >= filteredEntries.length) {
+      return
     }
+
+    setSelectedId(filteredEntries[nextIndex].id)
   }
 
   const applyFilePath = () => {
@@ -511,26 +547,14 @@ function LogViewerRoute() {
                   label="Source"
                   value={sourceFilter}
                   onChange={setSourceFilter}
-                  options={[
-                    ['all', 'All sources'],
-                    ...sourceOptions.map(([source, count]) => [
-                      source,
-                      `${source} (${formatInteger(count)})`,
-                    ]),
-                  ]}
+                  options={sourceFilterOptions}
                 />
 
                 <FilterSelect
                   label="Event"
                   value={eventFilter}
                   onChange={setEventFilter}
-                  options={[
-                    ['all', 'All events'],
-                    ...eventOptions.map(([event, count]) => [
-                      event,
-                      `${event} (${formatInteger(count)})`,
-                    ]),
-                  ]}
+                  options={eventFilterOptions}
                 />
               </div>
 
@@ -639,7 +663,10 @@ function LogViewerRoute() {
                     </ScrollArea>
                   </div>
 
-                  <Card className="border-border/70 bg-background/72">
+                  <Card
+                    ref={detailRef}
+                    className="border-border/70 bg-background/72"
+                  >
                     <CardHeader className="gap-3 border-b border-border/70">
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
@@ -729,72 +756,81 @@ function LogViewerRoute() {
                             </p>
                           </div>
 
-                          <div className="flex flex-wrap gap-2">
-                            <Button
-                              type="button"
-                              variant={
-                                detailMode === 'pretty' ? 'default' : 'outline'
-                              }
-                              size="sm"
-                              onClick={() => setDetailMode('pretty')}
-                              disabled={selectedEntry.kind !== 'json'}
-                            >
-                              Pretty JSON
-                            </Button>
-                            <Button
-                              type="button"
-                              variant={
-                                detailMode === 'raw' ? 'default' : 'outline'
-                              }
-                              size="sm"
-                              onClick={() => setDetailMode('raw')}
-                            >
-                              Raw text
-                            </Button>
-                            {selectedEntry.kind === 'json' &&
-                            detailMode === 'pretty' ? (
-                              <>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => setJsonTreeMode('expanded')}
-                                >
-                                  Expand all
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => setJsonTreeMode('collapsed')}
-                                >
-                                  Collapse all
-                                </Button>
-                              </>
-                            ) : null}
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={copySelectedEntry}
-                            >
-                              {copyState === 'copied' ? (
-                                <Check className="size-4" />
-                              ) : (
-                                <Copy className="size-4" />
+                          <div className="flex items-center justify-between gap-2">
+                            {/* Left pill: mode toggle */}
+                            <div className="flex items-center rounded-lg border border-border/70 bg-muted/40 p-0.5">
+                              <Button
+                                type="button"
+                                variant={detailMode === 'pretty' ? 'default' : 'ghost'}
+                                size="sm"
+                                className="h-7 rounded-md px-3 text-xs"
+                                onClick={() => setDetailMode('pretty')}
+                                disabled={selectedEntry.kind !== 'json'}
+                              >
+                                Pretty JSON
+                              </Button>
+                              <div className="mx-0.5 h-4 w-px bg-border/60" />
+                              <Button
+                                type="button"
+                                variant={detailMode === 'raw' ? 'default' : 'ghost'}
+                                size="sm"
+                                className="h-7 rounded-md px-3 text-xs"
+                                onClick={() => setDetailMode('raw')}
+                              >
+                                Raw text
+                              </Button>
+                            </div>
+
+                            {/* Right pill: mode-specific actions */}
+                            <div className="flex items-center rounded-lg border border-border/70 bg-muted/40 p-0.5">
+                              {selectedEntry.kind === 'json' && detailMode === 'pretty' && (
+                                <>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 rounded-md px-3 text-xs"
+                                    onClick={() => setJsonTreeMode('expanded')}
+                                  >
+                                    Expand all
+                                  </Button>
+                                  <div className="mx-0.5 h-4 w-px bg-border/60" />
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 rounded-md px-3 text-xs"
+                                    onClick={() => setJsonTreeMode('collapsed')}
+                                  >
+                                    Collapse all
+                                  </Button>
+                                  <div className="mx-0.5 h-4 w-px bg-border/60" />
+                                </>
                               )}
-                              {copyState === 'copied'
-                                ? 'Copied'
-                                : copyState === 'error'
-                                  ? 'Copy failed'
-                                  : selectedEntry.kind === 'json' &&
-                                      detailMode === 'pretty'
-                                    ? 'Copy JSON'
-                                    : 'Copy raw'}
-                            </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 rounded-md px-3 text-xs"
+                                onClick={copySelectedEntry}
+                              >
+                                {copyState === 'copied' ? (
+                                  <Check className="size-3" />
+                                ) : (
+                                  <Copy className="size-3" />
+                                )}
+                                {copyState === 'copied'
+                                  ? 'Copied'
+                                  : copyState === 'error'
+                                    ? 'Copy failed'
+                                    : selectedEntry.kind === 'json' && detailMode === 'pretty'
+                                      ? 'Copy JSON'
+                                      : 'Copy raw'}
+                              </Button>
+                            </div>
                           </div>
 
-                          <ScrollArea className="h-[50vh] rounded-2xl border border-border/70 bg-zinc-950 text-zinc-50">
+                          <ScrollArea className="h-[50vh] rounded-2xl border border-border/70 bg-neutral-800 text-neutral-50">
                             {detailMode === 'pretty' &&
                             selectedEntry.kind === 'json' ? (
                               <div className="min-h-full p-4">
@@ -808,33 +844,32 @@ function LogViewerRoute() {
                                         ? true
                                         : 2
                                   }
-                                  enableClipboard={false}
+                                  enableClipboard
                                   displayDataTypes={false}
                                   displayObjectSize
                                   shortenTextAfterLength={120}
                                   style={{
                                     backgroundColor: 'transparent',
-                                    color: '#f4efe7',
-                                    fontSize: '12px',
+                                    fontSize: '15px',
                                     fontFamily: 'var(--font-mono)',
-                                    lineHeight: '1.5rem',
-                                    ['--w-rjv-background-color' as string]:
-                                      'transparent',
-                                    ['--w-rjv-color' as string]: '#f4efe7',
-                                    ['--w-rjv-key-string' as string]: '#f6c177',
-                                    ['--w-rjv-string-color' as string]:
-                                      '#8bd5ca',
-                                    ['--w-rjv-info-color' as string]: '#908caa',
-                                    ['--w-rjv-type-int-color' as string]:
-                                      '#c4a7e7',
-                                    ['--w-rjv-type-float-color' as string]:
-                                      '#c4a7e7',
-                                    ['--w-rjv-type-boolean-color' as string]:
-                                      '#ebbcba',
-                                    ['--w-rjv-arrow-color' as string]:
-                                      '#f6c177',
-                                    ['--w-rjv-ellipsis-color' as string]:
-                                      '#908caa',
+                                    lineHeight: '1.6',
+                                    ['--w-rjv-background-color' as string]: 'transparent',
+                                    ['--w-rjv-color' as string]: '#e6edf3',
+                                    ['--w-rjv-key-string' as string]: '#79c0ff',
+                                    ['--w-rjv-string-color' as string]: '#a5d6ff',
+                                    ['--w-rjv-info-color' as string]: '#6e7681',
+                                    ['--w-rjv-type-int-color' as string]: '#ffa657',
+                                    ['--w-rjv-type-float-color' as string]: '#ffa657',
+                                    ['--w-rjv-type-boolean-color' as string]: '#ff7b72',
+                                    ['--w-rjv-type-null-color' as string]: '#d2a8ff',
+                                    ['--w-rjv-arrow-color' as string]: '#6e7681',
+                                    ['--w-rjv-ellipsis-color' as string]: '#6e7681',
+                                    ['--w-rjv-curlybraces-color' as string]: '#8b949e',
+                                    ['--w-rjv-brackets-color' as string]: '#8b949e',
+                                    ['--w-rjv-colon-color' as string]: '#6e7681',
+                                    ['--w-rjv-copied-color' as string]: '#3fb950',
+                                    ['--w-rjv-copy-color' as string]: '#6e7681',
+                                    ['--w-rjv-object-size-color' as string]: '#6e7681',
                                   }}
                                 />
                               </div>
