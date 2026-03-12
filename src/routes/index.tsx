@@ -22,6 +22,7 @@ import {
   useRef,
   useState,
 } from 'react'
+import type { ReactNode } from 'react'
 import { Badge } from '#/components/ui/badge'
 import { Button } from '#/components/ui/button'
 import {
@@ -182,6 +183,7 @@ function LogViewerRoute() {
     'idle',
   )
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [relativeNow, setRelativeNow] = useState(() => Date.now())
 
   const deferredQuery = useDeferredValue(query.trim().toLowerCase())
   const entries = data.entries
@@ -234,6 +236,16 @@ function LogViewerRoute() {
       window.clearInterval(intervalId)
     }
   }, [refreshData, search.file])
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setRelativeNow(Date.now())
+    }, 30_000)
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [])
 
   useEffect(() => {
     setCopyState('idle')
@@ -366,14 +378,12 @@ function LogViewerRoute() {
   }, [detailMode, selectedEntry])
 
   const severityBadgeClassName: Record<LogSeverity, string> = {
-    fatal: 'border-red-500/30 bg-red-500/12 text-red-900 dark:text-red-100',
-    error: 'border-red-500/30 bg-red-500/12 text-red-900 dark:text-red-100',
-    warn: 'border-amber-500/30 bg-amber-500/12 text-amber-900 dark:text-amber-100',
-    info: 'border-sky-500/30 bg-sky-500/12 text-sky-900 dark:text-sky-100',
-    debug:
-      'border-slate-500/30 bg-slate-500/12 text-slate-900 dark:text-slate-100',
-    trace:
-      'border-violet-500/30 bg-violet-500/12 text-violet-900 dark:text-violet-100',
+    fatal: 'border-foreground/20 bg-foreground text-background',
+    error: 'border-foreground/20 bg-foreground/12 text-foreground',
+    warn: 'border-border bg-muted text-foreground',
+    info: 'border-border bg-background text-foreground',
+    debug: 'border-border bg-background text-muted-foreground',
+    trace: 'border-border bg-background text-muted-foreground',
     unknown: 'border-border bg-muted text-muted-foreground',
   }
 
@@ -421,118 +431,69 @@ function LogViewerRoute() {
 
   return (
     <main className="page-wrap px-4 py-6 md:py-8">
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(360px,0.7fr)]">
-        <div className="space-y-4">
-          <Card className="overflow-hidden border-border/80 bg-card/88 shadow-xl shadow-black/5">
-            <CardHeader className="gap-4 border-b border-border/70">
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">
-                    Local log viewer
-                  </p>
-                  <CardTitle className="text-3xl tracking-tight sm:text-4xl">
-                    Search and inspect log files without leaving the browser.
-                  </CardTitle>
-                  <CardDescription className="max-w-2xl text-sm leading-6">
-                    Reads files on the server, detects structured JSON when it
-                    can, and keeps raw lines available for everything else.
-                  </CardDescription>
-                </div>
+      <section className="space-y-4">
+        <Card className="overflow-hidden border-border/80 bg-card/88 shadow-xl shadow-black/5">
+          <CardHeader className="gap-3 border-b border-border/70">
+            <div className="space-y-1">
+              <CardTitle className="text-2xl tracking-tight">
+                Open log file
+              </CardTitle>
+              <CardDescription>
+                Load a local log and jump straight into search and entries.
+              </CardDescription>
+            </div>
+          </CardHeader>
 
-                <div className="rounded-2xl border border-border/70 bg-background/70 px-4 py-3 text-right shadow-sm">
-                  <p className="m-0 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                    Active file
-                  </p>
-                  <p className="mt-1 max-w-xs font-mono text-xs leading-5 text-foreground sm:max-w-sm">
-                    {search.file}
-                  </p>
-                </div>
-              </div>
-            </CardHeader>
+          <CardContent className="space-y-3 py-0">
+            <label className="space-y-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                File path
+              </span>
+              <Input
+                value={fileInput}
+                onChange={(event) => setFileInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    applyFilePath()
+                  }
+                }}
+                placeholder={DEFAULT_LOG_PATH || '/path/to/your/logfile.log'}
+                className="bg-background/80 font-mono text-xs"
+              />
+            </label>
 
-            <CardContent className="grid gap-4 py-6 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
-              <label className="space-y-2">
-                <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                  File path
-                </span>
-                <Input
-                  value={fileInput}
-                  onChange={(event) => setFileInput(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                      applyFilePath()
-                    }
-                  }}
-                  placeholder={DEFAULT_LOG_PATH || '/path/to/your/logfile.log'}
-                  className="h-11 bg-background/80 font-mono text-xs"
+            <div className="flex flex-wrap items-center gap-2 mt-2">
+              <Button type="button" onClick={applyFilePath} className="h-11 min-w-32">
+                <FileText className="size-4" />
+                Load file
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-11"
+                onClick={() => void refreshData()}
+                disabled={isRefreshing}
+              >
+                <RefreshCw
+                  className={cn('size-4', isRefreshing && 'animate-spin')}
                 />
-              </label>
+                {isRefreshing ? 'Refreshing' : 'Refresh'}
+              </Button>
+              <span className="text-[11px] text-muted-foreground">
+                Auto refresh every {Math.round(AUTO_REFRESH_INTERVAL_MS / 1000)}s
+              </span>
+            </div>
+          </CardContent>
+        </Card>
 
-              <div className="flex flex-col gap-2 xl:items-end">
-                <div className="flex flex-wrap items-center gap-2 xl:justify-end">
-                  <Button
-                    type="button"
-                    onClick={applyFilePath}
-                    className="h-11 min-w-32"
-                  >
-                    <FileText className="size-4" />
-                    Load file
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-11"
-                    onClick={() => void refreshData()}
-                    disabled={isRefreshing}
-                  >
-                    <RefreshCw
-                      className={cn('size-4', isRefreshing && 'animate-spin')}
-                    />
-                    {isRefreshing ? 'Refreshing' : 'Refresh'}
-                  </Button>
-                </div>
-                <p className="m-0 text-[11px] text-muted-foreground xl:pr-1">
-                  Auto refresh every {Math.round(AUTO_REFRESH_INTERVAL_MS / 1000)}s
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-
-          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <MetricCard
-              label="Entries"
-              value={data.ok ? formatInteger(data.stats.entryCount) : '0'}
-              hint={
-                data.ok
-                  ? `${formatInteger(data.stats.lineCount)} raw lines`
-                  : 'Read failed'
-              }
-            />
-            <MetricCard
-              label="Structured"
-              value={data.ok ? formatInteger(data.stats.structuredCount) : '0'}
-              hint={data.ok ? 'JSON entries detected' : 'No parsed metadata'}
-            />
-            <MetricCard
-              label="Issues"
-              value={formatInteger(issueCount)}
-              hint="Warning, error, and fatal entries"
-            />
-            <MetricCard
-              label="Visible"
-              value={formatInteger(filteredEntries.length)}
-              hint="After search and filters"
-            />
-          </section>
-
-          <Card className="border-border/80 bg-card/88 shadow-xl shadow-black/5">
+        <Card className="border-border/80 bg-card/88 shadow-xl shadow-black/5">
             <CardHeader className="gap-4 border-b border-border/70">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <CardTitle className="text-xl">Filter and browse</CardTitle>
+                  <CardTitle className="text-xl">Browse entries</CardTitle>
                   <CardDescription>
-                    Search across raw text, inferred metadata, and structured
-                    JSON fields.
+                    {formatInteger(filteredEntries.length)} shown from{' '}
+                    {formatInteger(entries.length)} entries.
                   </CardDescription>
                 </div>
 
@@ -612,7 +573,7 @@ function LogViewerRoute() {
               <Separator />
 
               {!data.ok ? (
-                <div className="rounded-2xl border border-red-500/30 bg-red-500/8 px-4 py-4 text-sm text-red-900 dark:text-red-100">
+                <div className="rounded-2xl border border-border bg-muted px-4 py-4 text-sm text-foreground">
                   Failed to read{' '}
                   <span className="font-mono">{data.filePath}</span>.
                   <div className="mt-2 font-mono text-xs opacity-80">
@@ -620,7 +581,7 @@ function LogViewerRoute() {
                   </div>
                 </div>
               ) : (
-                <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.75fr)]">
+                <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.8fr)]">
                   <div className="rounded-2xl border border-border/70 bg-background/72">
                     <div className="flex items-center justify-between border-b border-border/70 px-4 py-3">
                       <div>
@@ -694,7 +655,10 @@ function LogViewerRoute() {
                               <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
                                 <span>
                                   {entry.timestamp
-                                    ? formatTimestamp(entry.timestamp)
+                                    ? formatRelativeTimestamp(
+                                        entry.timestamp,
+                                        relativeNow,
+                                      )
                                     : 'No timestamp'}
                                 </span>
                                 <span>
@@ -802,14 +766,16 @@ function LogViewerRoute() {
                             </p>
                             <p className="m-0 text-xs text-muted-foreground">
                               {selectedEntry.timestamp
-                                ? formatTimestamp(selectedEntry.timestamp)
+                                ? formatTimestampWithAbsolute(
+                                    selectedEntry.timestamp,
+                                    relativeNow,
+                                  )
                                 : 'No timestamp detected'}
                             </p>
                           </div>
 
-                          <div className="flex items-center justify-between gap-2">
-                            {/* Left pill: mode toggle */}
-                            <div className="flex items-center rounded-lg border border-border/70 bg-muted/40 p-0.5">
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div className="flex max-w-full flex-wrap items-center rounded-lg border border-border/70 bg-muted/40 p-0.5">
                               <Button
                                 type="button"
                                 variant={detailMode === 'pretty' ? 'default' : 'ghost'}
@@ -832,8 +798,7 @@ function LogViewerRoute() {
                               </Button>
                             </div>
 
-                            {/* Right pill: mode-specific actions */}
-                            <div className="flex items-center rounded-lg border border-border/70 bg-muted/40 p-0.5">
+                            <div className="flex max-w-full flex-wrap items-center rounded-lg border border-border/70 bg-muted/40 p-0.5">
                               {selectedEntry.kind === 'json' && detailMode === 'pretty' && (
                                 <>
                                   <Button
@@ -881,7 +846,7 @@ function LogViewerRoute() {
                             </div>
                           </div>
 
-                          <ScrollArea className="h-[50vh] rounded-2xl border border-border/70 bg-neutral-800 text-neutral-50">
+                          <ScrollArea className="h-[50vh] rounded-2xl border border-border/70 bg-card text-foreground">
                             {detailMode === 'pretty' &&
                             selectedEntry.kind === 'json' ? (
                               <div className="min-h-full p-4">
@@ -905,22 +870,22 @@ function LogViewerRoute() {
                                     fontFamily: 'var(--font-mono)',
                                     lineHeight: '1.6',
                                     ['--w-rjv-background-color' as string]: 'transparent',
-                                    ['--w-rjv-color' as string]: '#e6edf3',
-                                    ['--w-rjv-key-string' as string]: '#79c0ff',
-                                    ['--w-rjv-string-color' as string]: '#a5d6ff',
-                                    ['--w-rjv-info-color' as string]: '#6e7681',
-                                    ['--w-rjv-type-int-color' as string]: '#ffa657',
-                                    ['--w-rjv-type-float-color' as string]: '#ffa657',
-                                    ['--w-rjv-type-boolean-color' as string]: '#ff7b72',
-                                    ['--w-rjv-type-null-color' as string]: '#d2a8ff',
-                                    ['--w-rjv-arrow-color' as string]: '#6e7681',
-                                    ['--w-rjv-ellipsis-color' as string]: '#6e7681',
-                                    ['--w-rjv-curlybraces-color' as string]: '#8b949e',
-                                    ['--w-rjv-brackets-color' as string]: '#8b949e',
-                                    ['--w-rjv-colon-color' as string]: '#6e7681',
-                                    ['--w-rjv-copied-color' as string]: '#3fb950',
-                                    ['--w-rjv-copy-color' as string]: '#6e7681',
-                                    ['--w-rjv-object-size-color' as string]: '#6e7681',
+                                    ['--w-rjv-color' as string]: 'var(--foreground)',
+                                    ['--w-rjv-key-string' as string]: 'var(--foreground)',
+                                    ['--w-rjv-string-color' as string]: 'color-mix(in oklab, var(--foreground) 72%, var(--background))',
+                                    ['--w-rjv-info-color' as string]: 'var(--muted-foreground)',
+                                    ['--w-rjv-type-int-color' as string]: 'var(--foreground)',
+                                    ['--w-rjv-type-float-color' as string]: 'var(--foreground)',
+                                    ['--w-rjv-type-boolean-color' as string]: 'var(--foreground)',
+                                    ['--w-rjv-type-null-color' as string]: 'var(--muted-foreground)',
+                                    ['--w-rjv-arrow-color' as string]: 'var(--muted-foreground)',
+                                    ['--w-rjv-ellipsis-color' as string]: 'var(--muted-foreground)',
+                                    ['--w-rjv-curlybraces-color' as string]: 'var(--muted-foreground)',
+                                    ['--w-rjv-brackets-color' as string]: 'var(--muted-foreground)',
+                                    ['--w-rjv-colon-color' as string]: 'var(--muted-foreground)',
+                                    ['--w-rjv-copied-color' as string]: 'var(--foreground)',
+                                    ['--w-rjv-copy-color' as string]: 'var(--muted-foreground)',
+                                    ['--w-rjv-object-size-color' as string]: 'var(--muted-foreground)',
                                   }}
                                 />
                               </div>
@@ -942,9 +907,8 @@ function LogViewerRoute() {
               )}
             </CardContent>
           </Card>
-        </div>
 
-        <aside className="space-y-4">
+        <div className="grid gap-4 lg:grid-cols-2">
           <Card className="border-border/80 bg-card/88 shadow-xl shadow-black/5">
             <CardHeader>
               <CardTitle className="text-lg">File metadata</CardTitle>
@@ -960,20 +924,23 @@ function LogViewerRoute() {
                   />
                   <MetadataRow
                     label="Modified"
-                    value={formatTimestamp(data.stats.modifiedAt)}
+                    value={formatTimestampWithAbsolute(
+                      data.stats.modifiedAt,
+                      relativeNow,
+                    )}
                   />
                 </>
               ) : null}
               <MetadataRow
                 label="Loaded"
-                value={formatTimestamp(data.loadedAt)}
+                value={formatTimestampWithAbsolute(data.loadedAt, relativeNow)}
               />
             </CardContent>
           </Card>
 
           <Card className="border-border/80 bg-card/88 shadow-xl shadow-black/5">
             <CardHeader>
-              <CardTitle className="text-lg">How parsing works</CardTitle>
+              <CardTitle className="text-lg">Parsing notes</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm leading-6 text-muted-foreground">
               <p className="m-0">
@@ -988,33 +955,9 @@ function LogViewerRoute() {
               </p>
             </CardContent>
           </Card>
-        </aside>
+        </div>
       </section>
     </main>
-  )
-}
-
-function MetricCard({
-  label,
-  value,
-  hint,
-}: {
-  label: string
-  value: string
-  hint: string
-}) {
-  return (
-    <Card className="border-border/80 bg-card/88 shadow-lg shadow-black/5">
-      <CardContent className="space-y-2 py-6">
-        <p className="m-0 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-          {label}
-        </p>
-        <p className="m-0 text-3xl font-semibold tracking-tight text-foreground">
-          {value}
-        </p>
-        <p className="m-0 text-sm text-muted-foreground">{hint}</p>
-      </CardContent>
-    </Card>
   )
 }
 
@@ -1056,7 +999,7 @@ function MetadataRow({
   mono = false,
 }: {
   label: string
-  value: string
+  value: ReactNode
   mono?: boolean
 }) {
   return (
@@ -1097,7 +1040,7 @@ function formatBytes(bytes: number): string {
   return `${size.toFixed(size >= 10 ? 0 : 1)} ${units[unitIndex]}`
 }
 
-function formatTimestamp(value: string): string {
+function formatAbsoluteTimestamp(value: string): string {
   const date = new Date(value)
 
   if (Number.isNaN(date.getTime())) {
@@ -1108,6 +1051,47 @@ function formatTimestamp(value: string): string {
     dateStyle: 'medium',
     timeStyle: 'medium',
   }).format(date)
+}
+
+function formatRelativeTimestamp(value: string, now: number): string {
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return value
+  }
+
+  const diffMs = date.getTime() - now
+  const diffSeconds = Math.round(diffMs / 1000)
+  const rtf = new Intl.RelativeTimeFormat('en', { numeric: 'auto' })
+
+  const ranges: Array<[Intl.RelativeTimeFormatUnit, number]> = [
+    ['year', 60 * 60 * 24 * 365],
+    ['month', 60 * 60 * 24 * 30],
+    ['week', 60 * 60 * 24 * 7],
+    ['day', 60 * 60 * 24],
+    ['hour', 60 * 60],
+    ['minute', 60],
+    ['second', 1],
+  ]
+
+  for (const [unit, secondsPerUnit] of ranges) {
+    if (Math.abs(diffSeconds) >= secondsPerUnit || unit === 'second') {
+      return rtf.format(Math.round(diffSeconds / secondsPerUnit), unit)
+    }
+  }
+
+  return value
+}
+
+function formatTimestampWithAbsolute(value: string, now: number): string {
+  const absolute = formatAbsoluteTimestamp(value)
+  const relative = formatRelativeTimestamp(value, now)
+
+  if (absolute === value) {
+    return value
+  }
+
+  return `${relative} (${absolute})`
 }
 
 function shouldReplaceLogData(
