@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import JsonView from '@uiw/react-json-view'
 import {
@@ -18,6 +18,7 @@ import {
   startTransition,
   useDeferredValue,
   useEffect,
+  useEffectEvent,
   useRef,
   useState,
 } from 'react'
@@ -48,6 +49,8 @@ import { cn } from '#/lib/utils'
 type SearchState = {
   file: string
 }
+
+const AUTO_REFRESH_INTERVAL_MS = 3000
 
 type LogLoaderData =
   | {
@@ -157,10 +160,10 @@ export const Route = createFileRoute('/')({
 })
 
 function LogViewerRoute() {
-  const data = Route.useLoaderData()
+  const loaderData = Route.useLoaderData()
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
-  const router = useRouter()
+  const [data, setData] = useState(loaderData)
 
   const [fileInput, setFileInput] = useState(search.file)
   const [query, setQuery] = useState('')
@@ -178,15 +181,59 @@ function LogViewerRoute() {
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>(
     'idle',
   )
+  const [isRefreshing, setIsRefreshing] = useState(false)
 
   const deferredQuery = useDeferredValue(query.trim().toLowerCase())
   const entries = data.entries
 
   const detailRef = useRef<HTMLDivElement | null>(null)
+  const refreshInFlightRef = useRef(false)
+
+  useEffect(() => {
+    setData(loaderData)
+  }, [loaderData])
 
   useEffect(() => {
     setFileInput(search.file)
   }, [search.file])
+
+  const refreshData = useEffectEvent(async () => {
+    if (refreshInFlightRef.current) {
+      return
+    }
+
+    refreshInFlightRef.current = true
+    setIsRefreshing(true)
+
+    try {
+      const nextData = (await readLogFile({
+        data: {
+          filePath: search.file,
+        },
+      })) as LogLoaderData
+
+      setData((currentData) =>
+        shouldReplaceLogData(currentData, nextData) ? nextData : currentData,
+      )
+    } finally {
+      refreshInFlightRef.current = false
+      setIsRefreshing(false)
+    }
+  })
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') {
+        return
+      }
+
+      void refreshData()
+    }, AUTO_REFRESH_INTERVAL_MS)
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [refreshData, search.file])
 
   useEffect(() => {
     setCopyState('idle')
@@ -310,7 +357,7 @@ function LogViewerRoute() {
       behavior: 'smooth',
       block: 'start',
     })
-  }, [selectedId, selectedEntry])
+  }, [selectedId])
 
   useEffect(() => {
     if (selectedEntry?.kind !== 'json' && detailMode === 'pretty') {
@@ -403,46 +450,50 @@ function LogViewerRoute() {
               </div>
             </CardHeader>
 
-            <CardContent className="grid gap-3 py-6 md:grid-cols-[minmax(0,1fr)_auto]">
+            <CardContent className="grid gap-4 py-6 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
               <label className="space-y-2">
                 <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                   File path
                 </span>
-                <div className="flex gap-2">
-                  <Input
-                    value={fileInput}
-                    onChange={(event) => setFileInput(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
-                        applyFilePath()
-                      }
-                    }}
-                    placeholder={
-                      DEFAULT_LOG_PATH || '/path/to/your/logfile.log'
+                <Input
+                  value={fileInput}
+                  onChange={(event) => setFileInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      applyFilePath()
                     }
-                    className="h-11 bg-background/80 font-mono text-xs"
-                  />
+                  }}
+                  placeholder={DEFAULT_LOG_PATH || '/path/to/your/logfile.log'}
+                  className="h-11 bg-background/80 font-mono text-xs"
+                />
+              </label>
+
+              <div className="flex flex-col gap-2 xl:items-end">
+                <div className="flex flex-wrap items-center gap-2 xl:justify-end">
                   <Button
                     type="button"
                     onClick={applyFilePath}
-                    className="h-11 min-w-28"
+                    className="h-11 min-w-32"
                   >
                     <FileText className="size-4" />
                     Load file
                   </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-11"
+                    onClick={() => void refreshData()}
+                    disabled={isRefreshing}
+                  >
+                    <RefreshCw
+                      className={cn('size-4', isRefreshing && 'animate-spin')}
+                    />
+                    {isRefreshing ? 'Refreshing' : 'Refresh'}
+                  </Button>
                 </div>
-              </label>
-
-              <div className="flex items-end gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-11"
-                  onClick={() => router.invalidate()}
-                >
-                  <RefreshCw className="size-4" />
-                  Refresh
-                </Button>
+                <p className="m-0 text-[11px] text-muted-foreground xl:pr-1">
+                  Auto refresh every {Math.round(AUTO_REFRESH_INTERVAL_MS / 1000)}s
+                </p>
               </div>
             </CardContent>
           </Card>
@@ -1057,4 +1108,34 @@ function formatTimestamp(value: string): string {
     dateStyle: 'medium',
     timeStyle: 'medium',
   }).format(date)
+}
+
+function shouldReplaceLogData(
+  currentData: LogLoaderData,
+  nextData: LogLoaderData,
+): boolean {
+  if (currentData.ok !== nextData.ok) {
+    return true
+  }
+
+  if (!currentData.ok && !nextData.ok) {
+    return (
+      currentData.filePath !== nextData.filePath ||
+      currentData.error !== nextData.error
+    )
+  }
+
+  if (currentData.ok && nextData.ok) {
+    return (
+      currentData.filePath !== nextData.filePath ||
+      currentData.resolvedPath !== nextData.resolvedPath ||
+      currentData.stats.sizeBytes !== nextData.stats.sizeBytes ||
+      currentData.stats.modifiedAt !== nextData.stats.modifiedAt ||
+      currentData.stats.lineCount !== nextData.stats.lineCount ||
+      currentData.stats.entryCount !== nextData.stats.entryCount ||
+      currentData.stats.structuredCount !== nextData.stats.structuredCount
+    )
+  }
+
+  return false
 }

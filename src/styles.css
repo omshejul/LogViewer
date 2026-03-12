@@ -171,6 +171,12 @@ a {
   color: inherit;
 }
 
+button:not(:disabled),
+a[href],
+[role='button']:not([aria-disabled='true']) {
+  cursor: pointer;
+}
+
 code {
   font-family: var(--font-mono);
 }
